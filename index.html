@@ -7,7 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"
+  integrity="sha512-VKBuvrXdP1AXvfs+m4l3ZNZSI4PFJF0K0hGJJZ4RiNRkvFMO4IwFRHkoTc7xsdZhMgkLn+Ioq4elndAZicBcRQ=="
+  crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
 /* Layout: working bench. Manifest bar on top, large viewer left, region + outputs panel right; stacks on phones. */
 :root {
@@ -349,10 +351,13 @@ async function getJSON(url) {
 
 /* ================= EMBED MODES ================= */
 const MIRADOR_URL = "https://cdn.jsdelivr.net/npm/mirador@4.2.6/dist/mirador.min.js";
+// Subresource Integrity: the browser refuses the file if it differs from the tested copy. Update with the version.
+const MIRADOR_SRI = "sha384-/QSujin2zCMlk6CuFkTYSUtCsMl5SEL5jqzT1Yyyvg0AxPxqeaQubg6OywUAYz6H";
 
-function loadScript(src) {
+function loadScript(src, integrity) {
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
+    if (integrity) { s.integrity = integrity; s.crossOrigin = "anonymous"; }
     s.src = src;
     s.onload = () => resolve();
     s.onerror = () => reject(new Error("Couldn't load " + src));
@@ -390,7 +395,7 @@ async function miradorEmbed() {
       const s = canvasScale(canvas, infoW);
       win.initialViewerConfig = { bounds: reg.map(n => n * s) };
     }
-    await loadScript(MIRADOR_URL);
+    await loadScript(MIRADOR_URL, MIRADOR_SRI);
     const mirador = Mirador.viewer({
       id: "m-viewer",
       windows: [win],

@@ -34,6 +34,7 @@ The tool also outputs a static IIIF Image API crop URL: `{service}/{x,y,w,h}/{si
 - Plain HTML/CSS/JS, no build step.
 - OpenSeadragon 4.1.0 from cdnjs (`prefixUrl` points at cdnjs for control images) — clipper and legacy embed.
 - Mirador 4.2.6 UMD from jsDelivr (cdnjs doesn't host it), loaded only in Mirador-embed mode.
+- Both CDN scripts carry Subresource Integrity hashes (OSD: `integrity` on the `<script>` tag; Mirador: `MIRADOR_SRI`). A tampered file is refused (Mirador then falls back to the OSD embed). When upgrading either library, change the version and the hash together: `curl -s URL | openssl dgst -sha384 -binary | openssl base64 -A`. Google Fonts CSS can't be pinned this way.
 - Fonts from Google Fonts (Newsreader, IBM Plex Sans/Mono).
 - Light/dark theme via CSS tokens on `:root` (Mirador keeps its own light theme).
 - Tests: `npm test` (Node 20 built-in runner, no deps) runs `tests/helpers.test.mjs` against the pure functions between `/* @helpers-start */` and `/* @helpers-end */` in `index.html`. Keep that block free of DOM/globals. UI is checked in the browser pane (`.claude/launch.json`, port 8765).
