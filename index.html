@@ -396,7 +396,8 @@ async function miradorEmbed() {
   try {
     const svc = stripSlash(P.get("service"));
     const manifest = await getJSON(P.get("manifest"));
-    const { canvas } = canvasAt(parseCanvases(manifest), P.get("canvas"));
+    const canvases = parseCanvases(manifest);
+    const { canvas } = canvasAt(canvases, P.get("canvas"));
     if (!canvas?.id) throw new Error("No canvas found in the manifest.");
     const win = { manifestId: P.get("manifest"), canvasId: canvas.id, thumbnailNavigationPosition: "off" };
     const reg = embedRegion();
@@ -406,7 +407,7 @@ async function miradorEmbed() {
       win.initialViewerConfig = { bounds: reg.map(n => n * s) };
     }
     await loadScript(MIRADOR_URL);
-    Mirador.viewer({
+    const mirador = Mirador.viewer({
       id: "m-viewer",
       windows: [win],
       window: {
@@ -417,6 +418,16 @@ async function miradorEmbed() {
       workspaceControlPanel: { enabled: false },
       // Without this, OSD calls goHome() after adding the first image and undoes Mirador's initial fit to bounds
       osdConfig: { preserveViewport: true }
+    });
+    // preserveViewport would also keep the zoom when readers turn the page; fit each new page instead
+    const byId = new Map(canvases.map(c => [c.id, c]));
+    let shown = canvas.id;
+    mirador.store.subscribe(() => {
+      const w = Object.values(mirador.store.getState().windows)[0];
+      if (!w || !w.canvasId || w.canvasId === shown) return;
+      shown = w.canvasId;
+      const c = byId.get(shown);
+      if (c?.w && c?.h) mirador.store.dispatch(Mirador.updateViewport(w.id, { bounds: [0, 0, c.w, c.h] }));
     });
   } catch (e) {
     console.warn("Mirador embed failed, falling back to OpenSeadragon:", e);
