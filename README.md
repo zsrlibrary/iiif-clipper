@@ -62,3 +62,15 @@ npm test
 The tests cover the pure helper functions between the `@helpers-start` / `@helpers-end` markers in `index.html` (manifest parsing, URL routing, aspect-ratio math). Pushing to `main` publishes the site via GitHub Pages.
 
 Design notes and implementation history are in [`CLAUDE.md`](CLAUDE.md) and [`docs/superpowers/`](docs/superpowers/).
+
+## License
+
+IIIF Clipper is released under the [MIT License](LICENSE).
+
+It loads these libraries at run time from public CDNs; they are not copied into this repository and keep their own licenses:
+
+- [Mirador](https://github.com/ProjectMirador/mirador) — Apache License 2.0
+- [OpenSeadragon](https://github.com/openseadragon/openseadragon) — BSD 3-Clause License
+- [Newsreader](https://fonts.google.com/specimen/Newsreader) and [IBM Plex](https://github.com/IBM/plex) fonts via Google Fonts — SIL Open Font License 1.1
+
+Images and metadata shown in clips belong to the institutions that publish them; check each item's rights statement (shown in Mirador's information panel) before reusing it.
