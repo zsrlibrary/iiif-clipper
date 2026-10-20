@@ -141,4 +141,4 @@
 - [ ] **Step 1: Update `CLAUDE.md`** as listed.
 - [ ] **Step 2: Run** `npm test` — PASS.
 - [ ] **Step 3: Commit and push** `CLAUDE.md` — "Document Mirador embed and ratio frame"; `git push`.
-- [ ] **Step 4: Verify live** after the Pages build reports `built` (`gh api repos/kyledenlinger/iiif-clipper/pages/builds/latest --jq .status`): on `https://kyledenlinger.github.io/iiif-clipper/` repeat Task 2 check A and Task 4 check B. Expected: same results over HTTPS, no console errors.
+- [ ] **Step 4: Verify live** after the Pages build reports `built` (`gh api repos/zsrlibrary/iiif-clipper/pages/builds/latest --jq .status`): on `https://zsrlibrary.github.io/iiif-clipper/` repeat Task 2 check A and Task 4 check B. Expected: same results over HTTPS, no console errors.

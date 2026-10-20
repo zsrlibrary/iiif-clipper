@@ -2,7 +2,7 @@
 
 A single-file web tool (`index.html`) for making embeddable, cropped/zoomed clips from IIIF images, built so they can be used in PubPub. PubPub only accepts iframe embeds by URL (no raw HTML), so every clip has to be a stable URL with the crop encoded in it.
 
-Owner: Kyle Denlinger (ZSR Library, Wake Forest). Hosted on GitHub Pages under the `zsrlibrary` org (moved from `kyledenlinger` 2026-10-20; old `kyledenlinger.github.io` embed links no longer work, by choice).
+Owner: Kyle Denlinger (ZSR Library, Wake Forest). Hosted on GitHub Pages under the `zsrlibrary` org.
 
 ## How it works
 
@@ -56,7 +56,7 @@ Tested locally on 2026-10-20 (`.claude/launch.json` serves it on port 8765) with
 - FromThePage `https://fromthepage.com/iiif/32290377/manifest` (Presentation 2, Image API 2 level 1, 114 canvases) — Kyle's real use case
 - Wellcome `https://iiif.wellcomecollection.org/presentation/v3/b18035723` (Presentation 3 + Image API 2)
 
-Draw region, current view, typed xywh, canvas switching, both output URLs, embed (clip, home, `clip=0`, `nav=0`), reopen via `?manifest=…`, and phone layout all work. Steps 1–2 below are done. Live at https://zsrlibrary.github.io/iiif-clipper/ (repo https://github.com/zsrlibrary/iiif-clipper, Pages from `main` / root); the live clipper and a FromThePage embed were checked over HTTPS.
+Draw region, current view, typed xywh, canvas switching, both output URLs, embed (clip, home, `clip=0`, `nav=0`), reopen via `?manifest=…`, and phone layout all work. Live at https://zsrlibrary.github.io/iiif-clipper/ (repo https://github.com/zsrlibrary/iiif-clipper, Pages from `main` / root); the live clipper and a FromThePage embed were checked over HTTPS.
 
 Mirador embed + ratio frame added 2026-10-20 (spec/plan in `docs/superpowers/`).
 
@@ -64,8 +64,5 @@ Known gap: embed URLs always include `service`, so there's no UI path from an em
 
 ## To do (in order)
 
-1. Run it locally (`python3 -m http.server`) and test with the built-in Sample manifest
-   (`https://iiif.io/api/cookbook/recipe/0005-image-service/manifest.json`) plus a real v2 and a real v3 manifest. Fix whatever breaks — especially draw-region coordinate conversion, the overlay box, and the embed `open` handler (clip + fitBounds + home override).
-2. Create a public GitHub repo `iiif-clipper` under `kyledenlinger`, commit, and enable GitHub Pages from `main` / root.
-3. Verify the live embed URL loads in an iframe (test page or a PubPub draft).
-4. Nice-to-haves, only if Kyle asks: Image API v2 servers that reject `!w,h` sizes; canvases whose image body has no service (fall back to plain image, no cropping); a constrained pan so readers can't drift far from the region.
+1. Verify the live embed URL loads in an iframe (test page or a PubPub draft).
+2. Nice-to-haves, only if Kyle asks: Image API v2 servers that reject `!w,h` sizes; canvases whose image body has no service (fall back to plain image, no cropping); a constrained pan so readers can't drift far from the region.
