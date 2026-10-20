@@ -52,6 +52,12 @@ test("canvasAt clamps and coerces the index", () => {
   assert.equal(r.canvas.id, "b");
 });
 
+test("canvasScale prefers the info.json width over a derivative body width", () => {
+  // Wellcome b18035723: canvas 2569, painting body is a 742px derivative, info.json is 2569
+  assert.equal(H.canvasScale({ w: 2569, imgW: 742 }, 2569), 1);
+  assert.equal(H.canvasScale({ w: 1000, imgW: 742 }, 4000), 0.25);
+});
+
 test("canvasScale converts image pixels to canvas units", () => {
   assert.equal(H.canvasScale({ w: 1000, imgW: 4000 }, 0), 0.25);
   assert.equal(H.canvasScale({ w: 1000, imgW: 0 }, 2000), 0.5);

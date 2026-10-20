@@ -308,9 +308,10 @@ function canvasAt(canvases, index) {
   return { canvas: canvases[i], index: i };
 }
 
-// Multiplier from full-resolution image pixels to canvas coordinates.
+// Multiplier from full-resolution image pixels (info.json space, which xywh uses) to canvas coordinates.
+// The painting body's width is only a fallback: publishers often paint a smaller derivative.
 function canvasScale(canvas, infoWidth) {
-  const imgW = canvas.imgW || infoWidth;
+  const imgW = infoWidth || canvas.imgW;
   return canvas.w > 0 && imgW > 0 ? canvas.w / imgW : 1;
 }
 
@@ -409,7 +410,8 @@ async function miradorEmbed() {
     const win = { manifestId: P.get("manifest"), canvasId: canvas.id, thumbnailNavigationPosition: "off" };
     const reg = embedRegion();
     if (reg) {
-      const infoW = canvas.imgW ? 0 : (await getJSON(svc + "/info.json")).width;
+      let infoW = 0;
+      try { infoW = (await getJSON(svc + "/info.json")).width || 0; } catch (_) { /* fall back to body width, then 1 */ }
       const s = canvasScale(canvas, infoW);
       win.initialViewerConfig = { bounds: reg.map(n => n * s) };
     }
