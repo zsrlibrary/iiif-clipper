@@ -45,7 +45,7 @@ Tested locally on 2026-10-20 (`.claude/launch.json` serves it on port 8765) with
 - FromThePage `https://fromthepage.com/iiif/32290377/manifest` (Presentation 2, Image API 2 level 1, 114 canvases) — Kyle's real use case
 - Wellcome `https://iiif.wellcomecollection.org/presentation/v3/b18035723` (Presentation 3 + Image API 2)
 
-Draw region, current view, typed xywh, canvas switching, both output URLs, embed (clip, home, `clip=0`, `nav=0`), reopen via `?manifest=…`, and phone layout all work. Step 1 below is done.
+Draw region, current view, typed xywh, canvas switching, both output URLs, embed (clip, home, `clip=0`, `nav=0`), reopen via `?manifest=…`, and phone layout all work. Steps 1–2 below are done. Live at https://kyledenlinger.github.io/iiif-clipper/ (repo https://github.com/kyledenlinger/iiif-clipper, Pages from `main` / root); the live clipper and a FromThePage embed were checked over HTTPS.
 
 Known gap: embed URLs always include `service`, so there's no UI path from an embed back into the clipper for editing (you have to delete `service=` by hand).
 
