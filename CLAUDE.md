@@ -6,33 +6,44 @@ Owner: Kyle Denlinger (ZSR Library, Wake Forest). Target host: GitHub Pages unde
 
 ## How it works
 
-One file, two modes, chosen by the query string:
+One file, three modes, chosen by the query string (`routeMode`):
 
-- **Clipper mode** (no `service` param): load a IIIF Presentation manifest (v2 or v3), pick a canvas, set a region (drag a box, "Use current view", or type x/y/w/h), then copy the generated URLs.
-- **Embed mode** (`?service=…`): full-window OpenSeadragon viewer fitted to the region. This is the iframe target for PubPub.
+| URL has | Mode |
+|---|---|
+| `service` **and** `manifest` | **Mirador embed** — the iframe target for PubPub |
+| `service` only | legacy OpenSeadragon embed (old links; also the Mirador fallback) |
+| neither / `manifest` only | **Clipper** (`manifest` + `canvas` + `xywh` reopens a clip for editing) |
+
+- **Clipper**: load a IIIF Presentation manifest (v2 or v3), pick a canvas, set a region, copy the URLs. Region tools:
+  - **Aspect ratio** select: Free, 16:9, 3:2, 4:3, 1:1, 4:5, 2:3. Free = draw a box / "Use current view" / type x/y/w/h. A ratio shows a fixed-shape frame (60% of the stage): drag the frame, drag/scroll the image under it; the region is kept inside the image at the ratio (`fitRatioRect`).
+- **Mirador embed**: Mirador 4.2.6 opens the manifest at the canvas, zoomed to the region; readers can zoom out, pan, turn pages, and open the drawer (info/annotations). Minimal chrome, drawer closed. If the manifest or Mirador fails to load it falls back to the OSD embed.
 
 ### Embed URL parameters
 | param | meaning |
 |---|---|
-| `service` | IIIF Image API service base (no `/info.json`) — required for embed mode |
-| `xywh` | region in **full-resolution image pixel** coords (not canvas coords) |
-| `clip` | `0` = show the whole image instead of masking outside the region (default masks) |
-| `nav` | `0` = hide zoom buttons |
+| `service` | IIIF Image API service base (no `/info.json`) — marks an embed URL |
+| `manifest`, `canvas` | manifest URL and canvas **index**; Mirador embed + reopening in the clipper |
+| `xywh` | region in **full-resolution image pixel** coords (converted to canvas coords for Mirador) |
+| `ratio` | aspect-ratio preset used in the clipper (e.g. `16:9`); clipper only |
 | `cap` | optional caption bar text |
 | `link` | optional manifest URL shown as a link in the caption bar |
-| `manifest`, `canvas` | let the clipper reopen the clip for editing (ignored in embed mode) |
+| `clip`, `nav` | legacy OSD embed only: `clip=0` don't mask outside region, `nav=0` hide zoom buttons |
 
 The tool also outputs a static IIIF Image API crop URL: `{service}/{x,y,w,h}/{size}/0/default.jpg` (`max` for Image API 3, `full` for 2).
 
 ### Stack
 - Plain HTML/CSS/JS, no build step.
-- OpenSeadragon 4.1.0 from cdnjs (`prefixUrl` points at cdnjs for control images).
+- OpenSeadragon 4.1.0 from cdnjs (`prefixUrl` points at cdnjs for control images) — clipper and legacy embed.
+- Mirador 4.2.6 UMD from jsDelivr (cdnjs doesn't host it), loaded only in Mirador-embed mode.
 - Fonts from Google Fonts (Newsreader, IBM Plex Sans/Mono).
-- Light/dark theme via CSS tokens on `:root`.
+- Light/dark theme via CSS tokens on `:root` (Mirador keeps its own light theme).
+- Tests: `npm test` (Node 20 built-in runner, no deps) runs `tests/helpers.test.mjs` against the pure functions between `/* @helpers-start */` and `/* @helpers-end */` in `index.html`. Keep that block free of DOM/globals. UI is checked in the browser pane (`.claude/launch.json`, port 8765).
 
 ### Key decisions
-- Scroll-to-zoom is off in embed mode so the iframe doesn't hijack page scrolling in PubPub.
-- Region is clipped with `TiledImage.setClip`; Home button is overridden to return to the region.
+- Mirador embed uses `osdConfig.preserveViewport: true`; without it OSD calls `goHome()` after the first image and undoes `initialViewerConfig.bounds`. Side effect handled: a store subscription dispatches `updateViewport` with the whole canvas when the reader turns the page.
+- Mirador embed scroll-zooms (like any Mirador); the legacy OSD embed keeps scroll-to-zoom off.
+- Legacy OSD embed clips with `TiledImage.setClip`; Home returns to the region.
+- Ratio frame sits above OSD, so it forwards wheel events as `viewport.zoomBy`. `.stage` has `overflow: hidden` so the frame's dimming shadow stays inside.
 - Last-used manifest is remembered in `localStorage` (wrapped in try/catch).
 - `[hidden] { display: none !important }` is required: several elements set `display: flex/grid`, which otherwise overrides the `hidden` attribute.
 - OpenSeadragon writes inline `position: relative` on its element, so `#viewer` uses `position: absolute !important` to keep filling the stage.
@@ -46,6 +57,8 @@ Tested locally on 2026-10-20 (`.claude/launch.json` serves it on port 8765) with
 - Wellcome `https://iiif.wellcomecollection.org/presentation/v3/b18035723` (Presentation 3 + Image API 2)
 
 Draw region, current view, typed xywh, canvas switching, both output URLs, embed (clip, home, `clip=0`, `nav=0`), reopen via `?manifest=…`, and phone layout all work. Steps 1–2 below are done. Live at https://kyledenlinger.github.io/iiif-clipper/ (repo https://github.com/kyledenlinger/iiif-clipper, Pages from `main` / root); the live clipper and a FromThePage embed were checked over HTTPS.
+
+Mirador embed + ratio frame added 2026-10-20 (spec/plan in `docs/superpowers/`).
 
 Known gap: embed URLs always include `service`, so there's no UI path from an embed back into the clipper for editing (you have to delete `service=` by hand).
 
