@@ -428,15 +428,14 @@ async function miradorEmbed() {
       // Without this, OSD calls goHome() after adding the first image and undoes Mirador's initial fit to bounds
       osdConfig: { preserveViewport: true }
     });
-    // preserveViewport would also keep the zoom when readers turn the page; fit each new page instead
-    const byId = new Map(canvases.map(c => [c.id, c]));
+    // preserveViewport would also keep the zoom when readers turn the page. Clearing the stored viewport makes
+    // Mirador goHome() on the new image, which fits whatever is shown (one page, or a spread in book view).
     let shown = canvas.id;
     mirador.store.subscribe(() => {
       const w = Object.values(mirador.store.getState().windows)[0];
       if (!w || !w.canvasId || w.canvasId === shown) return;
       shown = w.canvasId;
-      const c = byId.get(shown);
-      if (c?.w && c?.h) mirador.store.dispatch(Mirador.updateViewport(w.id, { bounds: [0, 0, c.w, c.h] }));
+      mirador.store.dispatch(Mirador.updateViewport(w.id, { x: null, y: null, zoom: null, bounds: null }));
     });
   } catch (e) {
     console.warn("Mirador embed failed, falling back to OpenSeadragon:", e);

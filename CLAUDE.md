@@ -40,7 +40,7 @@ The tool also outputs a static IIIF Image API crop URL: `{service}/{x,y,w,h}/{si
 - Tests: `npm test` (Node 20 built-in runner, no deps) runs `tests/helpers.test.mjs` against the pure functions between `/* @helpers-start */` and `/* @helpers-end */` in `index.html`. Keep that block free of DOM/globals. UI is checked in the browser pane (`.claude/launch.json`, port 8765).
 
 ### Key decisions
-- Mirador embed uses `osdConfig.preserveViewport: true`; without it OSD calls `goHome()` after the first image and undoes `initialViewerConfig.bounds`. Side effect handled: a store subscription dispatches `updateViewport` with the whole canvas when the reader turns the page.
+- Mirador embed uses `osdConfig.preserveViewport: true`; without it OSD calls `goHome()` after the first image and undoes `initialViewerConfig.bounds`. Side effect handled: a store subscription clears the stored viewport (x/y/zoom/bounds = null) when the reader turns the page, so Mirador `goHome()`s — fits a single page or a book-view spread.
 - Mirador embed scroll-zooms (like any Mirador); the legacy OSD embed keeps scroll-to-zoom off.
 - Legacy OSD embed clips with `TiledImage.setClip`; Home returns to the region.
 - Ratio frame sits above OSD, so it forwards wheel events as `viewport.zoomBy`. `.stage` has `overflow: hidden` so the frame's dimming shadow stays inside.
