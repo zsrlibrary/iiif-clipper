@@ -243,6 +243,9 @@ body.embed { background: var(--stage); overflow: hidden; }
 "use strict";
 const $ = s => document.querySelector(s);
 const OSD_IMAGES = "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/";
+// Finer than OSD's defaults (1.2 per wheel tick, 2 per button click) for precise framing
+const ZOOM_PER_SCROLL = 1.1;
+const ZOOM_PER_CLICK = 1.25;
 const SAMPLE = "https://iiif.io/api/cookbook/recipe/0005-image-service/manifest.json";
 const P = new URLSearchParams(location.search);
 
@@ -398,7 +401,7 @@ async function miradorEmbed() {
       workspace: { type: "mosaic", allowNewWindows: false, isWorkspaceAddVisible: false },
       workspaceControlPanel: { enabled: false },
       // Without this, OSD calls goHome() after adding the first image and undoes Mirador's initial fit to bounds
-      osdConfig: { preserveViewport: true }
+      osdConfig: { preserveViewport: true, zoomPerScroll: ZOOM_PER_SCROLL }
     });
     // preserveViewport would also keep the zoom when readers turn the page. Clearing the stored viewport makes
     // Mirador goHome() on the new image, which fits whatever is shown (one page, or a spread in book view).
@@ -444,6 +447,7 @@ async function osdEmbed() {
     showFullPageControl: false,
     showRotationControl: false,
     gestureSettingsMouse: { scrollToZoom: false, clickToZoom: false, dblClickToZoom: true },
+    zoomPerClick: ZOOM_PER_CLICK,
     visibilityRatio: 0.5,
     animationTime: 0.7,
     crossOriginPolicy: "Anonymous"
@@ -473,7 +477,9 @@ function clipperMode() {
     navigatorPosition: "BOTTOM_RIGHT",
     showRotationControl: false,
     crossOriginPolicy: "Anonymous",
-    gestureSettingsMouse: { clickToZoom: false }
+    gestureSettingsMouse: { clickToZoom: false },
+    zoomPerScroll: ZOOM_PER_SCROLL,
+    zoomPerClick: ZOOM_PER_CLICK
   });
   const box = document.createElement("div");
   box.className = "region-box";

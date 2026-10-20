@@ -40,6 +40,7 @@ The tool also outputs a static IIIF Image API crop URL: `{service}/{x,y,w,h}/{si
 
 ### Key decisions
 - Mirador embed uses `osdConfig.preserveViewport: true`; without it OSD calls `goHome()` after the first image and undoes `initialViewerConfig.bounds`. Side effect handled: a store subscription clears the stored viewport (x/y/zoom/bounds = null) when the reader turns the page, so Mirador `goHome()`s — fits a single page or a book-view spread.
+- Zoom steps are finer than OSD defaults: `ZOOM_PER_SCROLL` 1.1× per wheel/trackpad tick (clipper + Mirador), `ZOOM_PER_CLICK` 1.25× per +/− click (clipper + legacy embed). Mirador's own +/− buttons stay 2× (hard-coded in Mirador). OSD's max zoom caps zoom-in near ~1.1 screen px per image px.
 - Mirador embed scroll-zooms (like any Mirador); the legacy OSD embed keeps scroll-to-zoom off.
 - Legacy OSD embed clips with `TiledImage.setClip`; Home returns to the region.
 - Ratio frame sits above OSD, so it forwards wheel events as `viewport.zoomBy`. `.stage` has `overflow: hidden` so the frame's dimming shadow stays inside.
@@ -67,5 +68,4 @@ Known gap: embed URLs always include `service`, so there's no UI path from an em
    (`https://iiif.io/api/cookbook/recipe/0005-image-service/manifest.json`) plus a real v2 and a real v3 manifest. Fix whatever breaks — especially draw-region coordinate conversion, the overlay box, and the embed `open` handler (clip + fitBounds + home override).
 2. Create a public GitHub repo `iiif-clipper` under `kyledenlinger`, commit, and enable GitHub Pages from `main` / root.
 3. Verify the live embed URL loads in an iframe (test page or a PubPub draft).
-4. **Requested 2026-10-20, not started:** finer-grained zoom controls. Not yet clarified whether this is the clipper (setting the crop), the Mirador embed (readers), or both. Today: clipper scroll/frame-wheel zoom steps by OSD `zoomPerScroll` (1.2×) per wheel event and the +/− buttons by `zoomPerClick`; Mirador uses its own OSD defaults. Ask Kyle which viewer before building.
-5. Nice-to-haves, only if Kyle asks: Image API v2 servers that reject `!w,h` sizes; canvases whose image body has no service (fall back to plain image, no cropping); a constrained pan so readers can't drift far from the region.
+4. Nice-to-haves, only if Kyle asks: Image API v2 servers that reject `!w,h` sizes; canvases whose image body has no service (fall back to plain image, no cropping); a constrained pan so readers can't drift far from the region.
