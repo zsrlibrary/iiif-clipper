@@ -144,6 +144,7 @@ input[type=number] { font-family: var(--f-mono); font-variant-numeric: tabular-n
 body.embed { background: var(--stage); overflow: hidden; }
 #embed { position: fixed; inset: 0; display: flex; flex-direction: column; }
 #e-viewer { flex: 1; min-height: 0; }
+#m-viewer { flex: 1; min-height: 0; position: relative; }
 .e-cap {
   display: flex; gap: 12px; justify-content: space-between; align-items: baseline;
   padding: 7px 12px; background: var(--surface); color: var(--ink); font-size: 13px; border-top: 1px solid var(--line);
@@ -238,6 +239,7 @@ body.embed { background: var(--stage); overflow: hidden; }
 <!-- ================= EMBED ================= -->
 <div id="embed" hidden>
   <div id="e-viewer"></div>
+  <div id="m-viewer" hidden></div>
 </div>
 
 <script>
@@ -345,30 +347,94 @@ async function getJSON(url) {
   return r.json();
 }
 
-/* ================= EMBED MODE ================= */
-async function embedMode() {
+/* ================= EMBED MODES ================= */
+const MIRADOR_URL = "https://cdn.jsdelivr.net/npm/mirador@4.2.6/dist/mirador.min.js";
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Couldn't load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+// xywh param as [x, y, w, h] in image pixels, or null if missing/invalid
+function embedRegion() {
+  const r = (P.get("xywh") || "").split(",").map(Number);
+  return r.length === 4 && r.every(n => Number.isFinite(n)) && r[2] > 0 && r[3] > 0 ? r : null;
+}
+
+function showEmbed() {
   document.body.classList.add("embed");
   $("#embed").hidden = false;
-  const svc = stripSlash(P.get("service"));
-  const reg = (P.get("xywh") || "").split(",").map(Number);
-  const hasReg = reg.length === 4 && reg.every(n => Number.isFinite(n)) && reg[2] > 0 && reg[3] > 0;
-  const clip = P.get("clip") !== "0";
-  const nav = P.get("nav") !== "0";
+}
+
+function renderCaptionBar() {
   const cap = P.get("cap") || "";
   const link = P.get("link") || "";
-
-  if (cap || link) {
-    const bar = document.createElement("div");
-    bar.className = "e-cap";
-    const s = document.createElement("span"); s.textContent = cap; s.title = cap;
-    bar.appendChild(s);
-    if (link && /^https?:\/\//.test(link)) {
-      const a = document.createElement("a");
-      a.href = link; a.target = "_blank"; a.rel = "noopener"; a.textContent = "IIIF manifest ↗";
-      bar.appendChild(a);
-    }
-    $("#embed").appendChild(bar);
+  if ((!cap && !link) || $("#embed .e-cap")) return;
+  const bar = document.createElement("div");
+  bar.className = "e-cap";
+  const s = document.createElement("span"); s.textContent = cap; s.title = cap;
+  bar.appendChild(s);
+  if (link && /^https?:\/\//.test(link)) {
+    const a = document.createElement("a");
+    a.href = link; a.target = "_blank"; a.rel = "noopener"; a.textContent = "IIIF manifest ↗";
+    bar.appendChild(a);
   }
+  $("#embed").appendChild(bar);
+}
+
+// Mirador embed: opens the manifest at the canvas, zoomed to the region. Falls back to osdEmbed on any failure.
+async function miradorEmbed() {
+  showEmbed();
+  renderCaptionBar();
+  $("#e-viewer").hidden = true;
+  $("#m-viewer").hidden = false;
+  try {
+    const svc = stripSlash(P.get("service"));
+    const manifest = await getJSON(P.get("manifest"));
+    const { canvas } = canvasAt(parseCanvases(manifest), P.get("canvas"));
+    if (!canvas?.id) throw new Error("No canvas found in the manifest.");
+    const win = { manifestId: P.get("manifest"), canvasId: canvas.id, thumbnailNavigationPosition: "off" };
+    const reg = embedRegion();
+    if (reg) {
+      const infoW = canvas.imgW ? 0 : (await getJSON(svc + "/info.json")).width;
+      const s = canvasScale(canvas, infoW);
+      win.initialViewerConfig = { bounds: reg.map(n => n * s) };
+    }
+    await loadScript(MIRADOR_URL);
+    Mirador.viewer({
+      id: "m-viewer",
+      windows: [win],
+      window: {
+        allowClose: false, allowMaximize: false, allowFullscreen: false, allowTopMenuButton: false,
+        sideBarOpen: false, sideBarPanel: "info", defaultView: "single"
+      },
+      workspace: { type: "mosaic", allowNewWindows: false, isWorkspaceAddVisible: false },
+      workspaceControlPanel: { enabled: false },
+      // Without this, OSD calls goHome() after adding the first image and undoes Mirador's initial fit to bounds
+      osdConfig: { preserveViewport: true }
+    });
+  } catch (e) {
+    console.warn("Mirador embed failed, falling back to OpenSeadragon:", e);
+    $("#m-viewer").hidden = true;
+    $("#e-viewer").hidden = false;
+    osdEmbed();
+  }
+}
+
+// Plain OpenSeadragon embed (legacy URLs without a manifest, and the Mirador fallback).
+async function osdEmbed() {
+  showEmbed();
+  renderCaptionBar();
+  const svc = stripSlash(P.get("service"));
+  const reg = embedRegion();
+  const hasReg = !!reg;
+  const clip = P.get("clip") !== "0";
+  const nav = P.get("nav") !== "0";
 
   let info;
   try { info = await getJSON(svc + "/info.json"); }
@@ -676,7 +742,9 @@ function clipperMode() {
 }
 
 const mode = routeMode(P);
-if (mode === "mirador" || mode === "osd") embedMode(); else clipperMode();
+if (mode === "mirador") miradorEmbed();
+else if (mode === "osd") osdEmbed();
+else clipperMode();
 })();
 </script>
 </body>
