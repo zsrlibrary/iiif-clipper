@@ -75,11 +75,15 @@ input[type=number] { font-family: var(--f-mono); font-variant-numeric: tabular-n
   flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr); gap: 0; min-height: 0;
 }
 .stagecol { display: flex; flex-direction: column; min-width: 0; min-height: 520px; }
-.stage { position: relative; flex: 1; background: var(--stage); min-height: 420px; }
+.stage { position: relative; flex: 1; background: var(--stage); min-height: 420px; overflow: hidden; }
 #viewer { position: absolute !important; inset: 0; } /* OSD sets inline position:relative, which collapses the box to 0 height */
 #draw-layer { position: absolute; inset: 0; cursor: crosshair; z-index: 5; touch-action: none; }
 #draw-rubber { position: absolute; border: 2px dashed var(--select); background: color-mix(in srgb, var(--select) 18%, transparent); pointer-events: none; }
 .region-box { border: 2px solid var(--select); box-shadow: 0 0 0 9999px rgba(0,0,0,.35); pointer-events: none; }
+.ratio-frame {
+  position: absolute; z-index: 4; border: 2px solid var(--select); box-shadow: 0 0 0 9999px rgba(0,0,0,.35);
+  cursor: move; touch-action: none;
+}
 .stage-msg {
   position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #c9d1cc;
   padding: 24px; pointer-events: none;
@@ -175,6 +179,7 @@ body.embed { background: var(--stage); overflow: hidden; }
         <div id="viewer"></div>
         <div class="stage-msg" id="stage-msg"><p>Paste a IIIF Presentation manifest (v2 or v3) and press Load.</p></div>
         <div id="draw-layer" hidden><div id="draw-rubber" hidden></div></div>
+        <div id="ratio-frame" class="ratio-frame" hidden title="Drag to move · scroll to zoom the image"></div>
         <div class="hint" id="draw-hint" hidden>Drag a box around the detail · Esc to cancel</div>
       </div>
       <nav class="strip" id="strip" aria-label="Canvases" hidden></nav>
@@ -189,6 +194,10 @@ body.embed { background: var(--stage); overflow: hidden; }
 
       <section>
         <h2>Region</h2>
+        <div class="field" style="margin:0 0 10px">
+          <label class="label" for="ratio">Aspect ratio</label>
+          <select id="ratio"></select>
+        </div>
         <div class="row">
           <button class="btn" id="draw-btn" type="button" disabled>Draw region</button>
           <button class="btn" id="view-btn" type="button" disabled>Use current view</button>
@@ -484,7 +493,8 @@ async function osdEmbed() {
 /* ================= CLIPPER MODE ================= */
 function clipperMode() {
   $("#app").hidden = false;
-  const S = { manifestUrl: "", manifest: null, canvases: [], idx: 0, info: null, svc: "", v3: true, region: null, overlay: false };
+  const S = { manifestUrl: "", manifest: null, canvases: [], idx: 0, info: null, svc: "", v3: true, region: null, overlay: false,
+    ratio: null, ratioStr: "Free" };
 
   const viewer = OpenSeadragon({
     element: $("#viewer"),
@@ -501,8 +511,12 @@ function clipperMode() {
   viewer.addHandler("open", () => {
     S.overlay = false;
     $("#stage-msg").hidden = true;
-    ["#draw-btn", "#view-btn", "#clear-btn"].forEach(s => $(s).disabled = false);
-    if (S.pending) { const r = S.pending; S.pending = null; setRegion(r, true); }
+    updateRegionButtons();
+    const r = S.pending; S.pending = null;
+    if (S.ratio) {
+      if (r) { const fr = fitRatioRect(r, S.ratio, S.info.width, S.info.height); setRegion(fr, false, { overlay: false }); placeFrameOver(fr); }
+      else showFrame();
+    } else if (r) setRegion(r, true);
   });
   viewer.addHandler("open-failed", e => showStageMsg("Couldn't open this image: " + (e.message || "unknown error")));
 
@@ -577,7 +591,8 @@ function clipperMode() {
   }
 
   /* --- region --- */
-  function setRegion(r, fly = false) {
+  // overlay: false is used by the ratio frame, which draws its own box
+  function setRegion(r, fly = false, { overlay = true } = {}) {
     if (!S.info) return;
     const W = S.info.width, H = S.info.height;
     let x = Math.round(Math.max(0, Math.min(r.x, W - 1)));
@@ -587,7 +602,9 @@ function clipperMode() {
     S.region = { x, y, w, h };
     $("#rx").value = x; $("#ry").value = y; $("#rw").value = w; $("#rh").value = h;
     const ti = viewer.world.getItemAt(0);
-    if (ti) {
+    if (!overlay) {
+      if (S.overlay) { viewer.removeOverlay(box); S.overlay = false; }
+    } else if (ti) {
       const vr = ti.imageToViewportRectangle(new OpenSeadragon.Rect(x, y, w, h));
       if (S.overlay) viewer.updateOverlay(box, vr);
       else { viewer.addOverlay({ element: box, location: vr }); S.overlay = true; }
@@ -603,7 +620,17 @@ function clipperMode() {
   }
   ["#rx", "#ry", "#rw", "#rh"].forEach(s => $(s).addEventListener("change", () => {
     const vals = ["#rx", "#ry", "#rw", "#rh"].map(q => Number($(q).value));
-    if (vals.every(Number.isFinite) && vals[2] > 0 && vals[3] > 0) setRegion({ x: vals[0], y: vals[1], w: vals[2], h: vals[3] }, true);
+    if (S.ratio) {
+      // keep the ratio: the edited side drives the other one
+      if (s === "#rh") vals[2] = vals[3] * S.ratio; else vals[3] = vals[2] / S.ratio;
+    }
+    if (!(vals.every(Number.isFinite) && vals[2] > 0 && vals[3] > 0)) return;
+    const r = { x: vals[0], y: vals[1], w: vals[2], h: vals[3] };
+    if (S.ratio && S.info) {
+      const fr = fitRatioRect(r, S.ratio, S.info.width, S.info.height);
+      setRegion(fr, false, { overlay: false });
+      placeFrameOver(fr);
+    } else setRegion(r, true);
   }));
 
   $("#view-btn").addEventListener("click", () => {
@@ -650,6 +677,123 @@ function clipperMode() {
     setDraw(false);
     setRegion({ x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y });
   });
+
+  /* --- ratio frame: fixed-shape box you drag over the image; zoom/pan the image under it --- */
+  const frame = $("#ratio-frame"), stage = $("#stage");
+  const F = { x: 0, y: 0, w: 0, h: 0 };   // frame in stage pixels (same as viewer element coords)
+  let quietUntil = 0;                      // skip frame→region while the viewer settles after placeFrameOver
+  $("#ratio").append(...RATIOS.map(r => new Option(r, r)));
+
+  function updateRegionButtons() {
+    const ready = !!viewer.world.getItemAt(0);
+    $("#draw-btn").disabled = !ready || !!S.ratio;
+    $("#view-btn").disabled = !ready || !!S.ratio;
+    $("#clear-btn").disabled = !ready;
+  }
+
+  function applyFrame() {
+    Object.assign(frame.style, { left: F.x + "px", top: F.y + "px", width: F.w + "px", height: F.h + "px" });
+  }
+
+  function clampFrame() {
+    const st = stage.getBoundingClientRect();
+    F.x = Math.min(Math.max(0, F.x), Math.max(0, st.width - F.w));
+    F.y = Math.min(Math.max(0, F.y), Math.max(0, st.height - F.h));
+  }
+
+  // Largest frame of the ratio within 60% of the stage, centred on (cx, cy) or the stage centre
+  function fitFrame(cx, cy) {
+    const st = stage.getBoundingClientRect();
+    let w = st.width * 0.6, h = w / S.ratio;
+    if (h > st.height * 0.6) { h = st.height * 0.6; w = h * S.ratio; }
+    Object.assign(F, { x: (cx ?? st.width / 2) - w / 2, y: (cy ?? st.height / 2) - h / 2, w, h });
+    clampFrame();
+    applyFrame();
+  }
+
+  function frameToRegion() {
+    const ti = viewer.world.getItemAt(0);
+    if (!S.ratio || !ti || !S.info || frame.hidden || performance.now() < quietUntil) return;
+    const a = ti.viewerElementToImageCoordinates(new OpenSeadragon.Point(F.x, F.y));
+    const b = ti.viewerElementToImageCoordinates(new OpenSeadragon.Point(F.x + F.w, F.y + F.h));
+    setRegion(fitRatioRect({ x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }, S.ratio, S.info.width, S.info.height), false, { overlay: false });
+  }
+  let rafPending = false;
+  function scheduleFrameToRegion() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => { rafPending = false; frameToRegion(); });
+  }
+
+  function showFrame() {
+    frame.hidden = false;
+    fitFrame();
+    frameToRegion();
+  }
+
+  // Fit the viewer so the image-pixel region fills ~60% of the stage, then put the frame exactly over it
+  function placeFrameOver(r) {
+    const ti = viewer.world.getItemAt(0);
+    if (!ti) return;
+    frame.hidden = false;
+    const vr = ti.imageToViewportRectangle(new OpenSeadragon.Rect(r.x, r.y, r.w, r.h));
+    const k = 1 / 0.6;
+    viewer.viewport.fitBounds(new OpenSeadragon.Rect(
+      vr.x - vr.width * (k - 1) / 2, vr.y - vr.height * (k - 1) / 2, vr.width * k, vr.height * k), true);
+    const a = ti.imageToViewerElementCoordinates(new OpenSeadragon.Point(r.x, r.y));
+    const b = ti.imageToViewerElementCoordinates(new OpenSeadragon.Point(r.x + r.w, r.y + r.h));
+    Object.assign(F, { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y });
+    applyFrame();
+    quietUntil = performance.now() + 400;
+  }
+
+  function setRatio(str) {
+    const ratio = parseRatio(str);
+    const was = S.ratio;
+    S.ratio = ratio;
+    S.ratioStr = ratio ? str : "Free";
+    $("#ratio").value = S.ratioStr;
+    if (ratio) setDraw(false);
+    updateRegionButtons();
+    if (!viewer.world.getItemAt(0)) return;   // the open handler shows the frame once the image is ready
+    if (ratio) {
+      frame.hidden = false;
+      if (was) fitFrame(F.x + F.w / 2, F.y + F.h / 2); else fitFrame();
+      frameToRegion();
+    } else {
+      frame.hidden = true;
+      if (S.region) setRegion(S.region);
+    }
+    render();
+  }
+  $("#ratio").addEventListener("change", e => setRatio(e.target.value));
+
+  let grab = null;
+  frame.addEventListener("pointerdown", e => {
+    frame.setPointerCapture(e.pointerId);
+    grab = { dx: e.clientX - F.x, dy: e.clientY - F.y };
+    e.preventDefault();
+  });
+  frame.addEventListener("pointermove", e => {
+    if (!grab) return;
+    F.x = e.clientX - grab.dx; F.y = e.clientY - grab.dy;
+    clampFrame(); applyFrame(); scheduleFrameToRegion();
+  });
+  const drop = () => { if (grab) { grab = null; frameToRegion(); } };
+  frame.addEventListener("pointerup", drop);
+  frame.addEventListener("pointercancel", drop);
+  // The frame sits above OSD, so zoom the image ourselves when scrolling over it
+  frame.addEventListener("wheel", e => {
+    e.preventDefault();
+    const b = stage.getBoundingClientRect();
+    const at = viewer.viewport.pointFromPixel(new OpenSeadragon.Point(e.clientX - b.left, e.clientY - b.top), true);
+    viewer.viewport.zoomBy(Math.pow(viewer.zoomPerScroll, e.deltaY < 0 ? 1 : -1), at);
+    viewer.viewport.applyConstraints();
+  }, { passive: false });
+
+  viewer.addHandler("animation", scheduleFrameToRegion);
+  viewer.addHandler("animation-finish", frameToRegion);
+  new ResizeObserver(() => { if (S.ratio && !frame.hidden) { fitFrame(); frameToRegion(); } }).observe(stage);
 
   /* --- outputs --- */
   ["#caption", "#size", "#opt-clip", "#opt-nav", "#opt-link"].forEach(s => $(s).addEventListener("input", render));
