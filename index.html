@@ -227,8 +227,6 @@ body.embed { background: var(--stage); overflow: hidden; }
             <option value="max">Full resolution</option>
           </select>
         </div>
-        <label class="check" for="opt-clip"><input id="opt-clip" type="checkbox" checked> Hide everything outside the region</label>
-        <label class="check" for="opt-nav"><input id="opt-nav" type="checkbox" checked> Show zoom buttons</label>
         <label class="check" for="opt-link"><input id="opt-link" type="checkbox" checked> Link back to the manifest</label>
       </section>
 
@@ -796,7 +794,7 @@ function clipperMode() {
   new ResizeObserver(() => { if (S.ratio && !frame.hidden) { fitFrame(); frameToRegion(); } }).observe(stage);
 
   /* --- outputs --- */
-  ["#caption", "#size", "#opt-clip", "#opt-nav", "#opt-link"].forEach(s => $(s).addEventListener("input", render));
+  ["#caption", "#size", "#opt-link"].forEach(s => $(s).addEventListener("input", render));
 
   function urls() {
     const { x, y, w, h } = S.region;
@@ -806,12 +804,11 @@ function clipperMode() {
     const q = new URLSearchParams();
     q.set("service", S.svc);
     q.set("xywh", `${x},${y},${w},${h}`);
-    if (!$("#opt-clip").checked) q.set("clip", "0");
-    if (!$("#opt-nav").checked) q.set("nav", "0");
     const cap = $("#caption").value.trim(); if (cap) q.set("cap", cap);
     if ($("#opt-link").checked && S.manifestUrl) q.set("link", S.manifestUrl);
     q.set("manifest", S.manifestUrl);
     q.set("canvas", String(S.idx));
+    if (S.ratio) q.set("ratio", S.ratioStr);
     const base = location.origin + location.pathname;
     const embed = `${base}?${q.toString()}`;
     return { image, embed };
@@ -886,9 +883,8 @@ function clipperMode() {
     const r = (P.get("xywh") || "").split(",").map(Number);
     const reg = r.length === 4 && r.every(Number.isFinite) ? { x: r[0], y: r[1], w: r[2], h: r[3] } : null;
     if (P.get("cap")) $("#caption").value = P.get("cap");
-    $("#opt-clip").checked = P.get("clip") !== "0";
-    $("#opt-nav").checked = P.get("nav") !== "0";
     $("#opt-link").checked = P.has("link");
+    setRatio(P.get("ratio"));   // the frame is placed over the region once the image opens
     loadManifest(m, Number(P.get("canvas")) || 0, reg);
   } else {
     let last = ""; try { last = localStorage.getItem("iiifclip:last") || ""; } catch (_) {}
