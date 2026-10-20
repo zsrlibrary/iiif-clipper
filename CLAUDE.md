@@ -16,7 +16,7 @@ One file, three modes, chosen by the query string (`routeMode`):
 
 - **Clipper**: load a IIIF Presentation manifest (v2 or v3), pick a canvas, set a region, copy the URLs. Region tools:
   - **Aspect ratio** select: Free, 16:9, 3:2, 4:3, 1:1, 4:5, 2:3. Free = draw a box / "Use current view" / type x/y/w/h. A ratio shows a fixed-shape frame (60% of the stage): drag the frame, drag/scroll the image under it; the region is kept inside the image at the ratio (`fitRatioRect`).
-- **Mirador embed**: Mirador 4.2.6 opens the manifest at the canvas, zoomed to the region; readers can zoom out, pan, turn pages, and open the drawer (info/annotations). Minimal chrome, drawer closed. If the manifest or Mirador fails to load it falls back to the OSD embed.
+- **Mirador embed**: Mirador 4.2.6 opens the manifest at the canvas, zoomed to the region; readers can zoom out, pan, turn pages, and open the drawer (info/annotations). Minimal chrome, drawer closed, no footer (Mirador's title bar and Info drawer show the title and manifest). If the manifest or Mirador fails to load it falls back to the OSD embed.
 
 ### Embed URL parameters
 | param | meaning |
@@ -25,8 +25,7 @@ One file, three modes, chosen by the query string (`routeMode`):
 | `manifest`, `canvas` | manifest URL and canvas **index**; Mirador embed + reopening in the clipper |
 | `xywh` | region in **full-resolution image pixel** coords (converted to canvas coords for Mirador) |
 | `ratio` | aspect-ratio preset used in the clipper (e.g. `16:9`); clipper only |
-| `cap` | optional caption bar text |
-| `link` | optional manifest URL shown as a link in the caption bar |
+| `cap`, `link` | obsolete (old caption footer, removed 2026-10-20); ignored if present |
 | `clip`, `nav` | legacy OSD embed only: `clip=0` don't mask outside region, `nav=0` hide zoom buttons |
 
 The tool also outputs a static IIIF Image API crop URL: `{service}/{x,y,w,h}/{size}/0/default.jpg` (`max` for Image API 3, `full` for 2).
@@ -68,4 +67,5 @@ Known gap: embed URLs always include `service`, so there's no UI path from an em
    (`https://iiif.io/api/cookbook/recipe/0005-image-service/manifest.json`) plus a real v2 and a real v3 manifest. Fix whatever breaks — especially draw-region coordinate conversion, the overlay box, and the embed `open` handler (clip + fitBounds + home override).
 2. Create a public GitHub repo `iiif-clipper` under `kyledenlinger`, commit, and enable GitHub Pages from `main` / root.
 3. Verify the live embed URL loads in an iframe (test page or a PubPub draft).
-4. Nice-to-haves, only if Kyle asks: Image API v2 servers that reject `!w,h` sizes; canvases whose image body has no service (fall back to plain image, no cropping); a constrained pan so readers can't drift far from the region.
+4. **Requested 2026-10-20, not started:** finer-grained zoom controls. Not yet clarified whether this is the clipper (setting the crop), the Mirador embed (readers), or both. Today: clipper scroll/frame-wheel zoom steps by OSD `zoomPerScroll` (1.2×) per wheel event and the +/− buttons by `zoomPerClick`; Mirador uses its own OSD defaults. Ask Kyle which viewer before building.
+5. Nice-to-haves, only if Kyle asks: Image API v2 servers that reject `!w,h` sizes; canvases whose image body has no service (fall back to plain image, no cropping); a constrained pan so readers can't drift far from the region.

@@ -149,12 +149,6 @@ body.embed { background: var(--stage); overflow: hidden; }
 #embed { position: fixed; inset: 0; display: flex; flex-direction: column; }
 #e-viewer { flex: 1; min-height: 0; }
 #m-viewer { flex: 1; min-height: 0; position: relative; }
-.e-cap {
-  display: flex; gap: 12px; justify-content: space-between; align-items: baseline;
-  padding: 7px 12px; background: var(--surface); color: var(--ink); font-size: 13px; border-top: 1px solid var(--line);
-}
-.e-cap span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.e-cap a { color: var(--accent); white-space: nowrap; }
 .e-err { color: #f0c2bb; padding: 20px; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
@@ -215,10 +209,6 @@ body.embed { background: var(--stage); overflow: hidden; }
       <section>
         <h2>Options</h2>
         <div class="field">
-          <label class="label" for="caption">Caption (embed only)</label>
-          <input id="caption" type="text" placeholder="Optional caption shown under the zoomable clip">
-        </div>
-        <div class="field">
           <label class="label" for="size">Static image size</label>
           <select id="size">
             <option value="!800,800">Fit within 800 px</option>
@@ -227,7 +217,6 @@ body.embed { background: var(--stage); overflow: hidden; }
             <option value="max">Full resolution</option>
           </select>
         </div>
-        <label class="check" for="opt-link"><input id="opt-link" type="checkbox" checked> Link back to the manifest</label>
       </section>
 
       <section>
@@ -379,26 +368,9 @@ function showEmbed() {
   $("#embed").hidden = false;
 }
 
-function renderCaptionBar() {
-  const cap = P.get("cap") || "";
-  const link = P.get("link") || "";
-  if ((!cap && !link) || $("#embed .e-cap")) return;
-  const bar = document.createElement("div");
-  bar.className = "e-cap";
-  const s = document.createElement("span"); s.textContent = cap; s.title = cap;
-  bar.appendChild(s);
-  if (link && /^https?:\/\//.test(link)) {
-    const a = document.createElement("a");
-    a.href = link; a.target = "_blank"; a.rel = "noopener"; a.textContent = "IIIF manifest ↗";
-    bar.appendChild(a);
-  }
-  $("#embed").appendChild(bar);
-}
-
 // Mirador embed: opens the manifest at the canvas, zoomed to the region. Falls back to osdEmbed on any failure.
 async function miradorEmbed() {
   showEmbed();
-  renderCaptionBar();
   $("#e-viewer").hidden = true;
   $("#m-viewer").hidden = false;
   try {
@@ -448,7 +420,6 @@ async function miradorEmbed() {
 // Plain OpenSeadragon embed (legacy URLs without a manifest, and the Mirador fallback).
 async function osdEmbed() {
   showEmbed();
-  renderCaptionBar();
   const svc = stripSlash(P.get("service"));
   const reg = embedRegion();
   const hasReg = !!reg;
@@ -545,9 +516,6 @@ function clipperMode() {
     $("#item-title").textContent = title;
     const attr = S.manifest.requiredStatement ? plain(label(S.manifest.requiredStatement.value)) : plain(label(S.manifest.attribution));
     $("#item-meta").textContent = [`${S.canvases.length} canvas${S.canvases.length === 1 ? "" : "es"}`, attr].filter(Boolean).join(" · ");
-    // Replace the caption unless the user typed their own
-    const cap = $("#caption");
-    if (!cap.value || cap.value === S.autoCap) { cap.value = title; S.autoCap = title; }
 
     buildStrip();
     await openCanvas(Math.min(Math.max(0, startIdx), S.canvases.length - 1), startRegion);
@@ -795,7 +763,7 @@ function clipperMode() {
   new ResizeObserver(() => { if (S.ratio && !frame.hidden) { fitFrame(); frameToRegion(); } }).observe(stage);
 
   /* --- outputs --- */
-  ["#caption", "#size", "#opt-link"].forEach(s => $(s).addEventListener("input", render));
+  $("#size").addEventListener("input", render);
 
   function urls() {
     const { x, y, w, h } = S.region;
@@ -805,8 +773,6 @@ function clipperMode() {
     const q = new URLSearchParams();
     q.set("service", S.svc);
     q.set("xywh", `${x},${y},${w},${h}`);
-    const cap = $("#caption").value.trim(); if (cap) q.set("cap", cap);
-    if ($("#opt-link").checked && S.manifestUrl) q.set("link", S.manifestUrl);
     q.set("manifest", S.manifestUrl);
     q.set("canvas", String(S.idx));
     if (S.ratio) q.set("ratio", S.ratioStr);
@@ -883,8 +849,6 @@ function clipperMode() {
   if (m) {
     const r = (P.get("xywh") || "").split(",").map(Number);
     const reg = r.length === 4 && r.every(Number.isFinite) ? { x: r[0], y: r[1], w: r[2], h: r[3] } : null;
-    if (P.get("cap")) $("#caption").value = P.get("cap");
-    $("#opt-link").checked = P.has("link");
     setRatio(P.get("ratio"));   // the frame is placed over the region once the image opens
     loadManifest(m, Number(P.get("canvas")) || 0, reg);
   } else {
