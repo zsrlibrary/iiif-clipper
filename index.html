@@ -249,6 +249,8 @@ const SAMPLE = "https://iiif.io/api/cookbook/recipe/0005-image-service/manifest.
 const P = new URLSearchParams(location.search);
 
 /* ---------- shared helpers ---------- */
+// Pure functions between the markers are unit-tested by tests/helpers.test.mjs (no DOM, no globals).
+/* @helpers-start */
 const stripSlash = s => String(s || "").replace(/\/info\.json$/, "").replace(/\/+$/, "");
 function label(l) {
   if (!l) return "";
@@ -262,6 +264,76 @@ function label(l) {
   }
   return "";
 }
+const imageApiV3 = info => {
+  const c = [].concat(info["@context"] || []).join(" ");
+  return /image\/3/.test(c) || info.type === "ImageService3";
+};
+
+// Canvases from a Presentation v2 or v3 manifest. imgW is the image's own pixel width (0 if unknown).
+function parseCanvases(m) {
+  const out = [];
+  if (m.sequences) {
+    (m.sequences[0]?.canvases || []).forEach((c, i) => {
+      const res = c.images?.[0]?.resource;
+      let s = res?.service; s = Array.isArray(s) ? s[0] : s;
+      out.push({ id: c["@id"] || c.id || "", label: label(c.label) || `Canvas ${i + 1}`, w: c.width, h: c.height,
+        svc: s ? stripSlash(s["@id"] || s.id) : "", img: res?.["@id"] || "", imgW: res?.width || 0 });
+    });
+  } else {
+    (m.items || []).filter(c => c.type === "Canvas").forEach((c, i) => {
+      let body = c.items?.[0]?.items?.[0]?.body;
+      if (Array.isArray(body)) body = body[0];
+      if (body?.type === "Choice") body = body.items?.[0];
+      let s = body?.service; s = Array.isArray(s) ? s[0] : s;
+      out.push({ id: c.id || c["@id"] || "", label: label(c.label) || `Canvas ${i + 1}`, w: c.width, h: c.height,
+        svc: s ? stripSlash(s.id || s["@id"]) : "", img: body?.id || "", imgW: body?.width || 0 });
+    });
+  }
+  return out;
+}
+
+function canvasAt(canvases, index) {
+  let i = Math.trunc(Number(index));
+  if (!Number.isFinite(i)) i = 0;
+  i = Math.min(Math.max(0, i), canvases.length - 1);
+  return { canvas: canvases[i], index: i };
+}
+
+// Multiplier from full-resolution image pixels to canvas coordinates.
+function canvasScale(canvas, infoWidth) {
+  const imgW = canvas.imgW || infoWidth;
+  return canvas.w > 0 && imgW > 0 ? canvas.w / imgW : 1;
+}
+
+function routeMode(params) {
+  if (!params.get("service")) return "clipper";
+  return params.get("manifest") ? "mirador" : "osd";
+}
+
+const RATIOS = ["Free", "16:9", "3:2", "4:3", "1:1", "4:5", "2:3"];
+function parseRatio(s) {
+  const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(String(s ?? ""));
+  if (!m) return null;
+  const a = Number(m[1]), b = Number(m[2]);
+  return a > 0 && b > 0 ? a / b : null;
+}
+
+// Fit an image-pixel rect of the given ratio inside a W×H image: shrink around its centre if too big,
+// shift inside, round to integers, and keep w/h within a pixel of the ratio.
+function fitRatioRect(r, ratio, W, H) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  let w = r.w, h = w / ratio;
+  if (w > W) { w = W; h = w / ratio; }
+  if (h > H) { h = H; w = h * ratio; }
+  w = Math.max(1, Math.round(w));
+  h = Math.max(1, Math.round(w / ratio));
+  if (h > H) { h = H; w = Math.max(1, Math.round(h * ratio)); }
+  const x = Math.min(Math.max(0, Math.round(cx - w / 2)), W - w);
+  const y = Math.min(Math.max(0, Math.round(cy - h / 2)), H - h);
+  return { x, y, w, h };
+}
+/* @helpers-end */
+
 function plain(html) {
   const d = document.createElement("div");
   d.innerHTML = String(html || "");
@@ -272,10 +344,6 @@ async function getJSON(url) {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} from ${url}`);
   return r.json();
 }
-const imageApiV3 = info => {
-  const c = [].concat(info["@context"] || []).join(" ");
-  return /image\/3/.test(c) || info.type === "ImageService3";
-};
 
 /* ================= EMBED MODE ================= */
 async function embedMode() {
@@ -366,27 +434,6 @@ function clipperMode() {
     m.innerHTML = ""; const p = document.createElement("p");
     p.textContent = t; if (isErr) p.style.color = "#f0c2bb";
     m.appendChild(p);
-  }
-
-  /* --- manifest parsing (v2 + v3) --- */
-  function parseCanvases(m) {
-    const out = [];
-    if (m.sequences) {
-      (m.sequences[0]?.canvases || []).forEach((c, i) => {
-        const res = c.images?.[0]?.resource;
-        let s = res?.service; s = Array.isArray(s) ? s[0] : s;
-        out.push({ label: label(c.label) || `Canvas ${i + 1}`, w: c.width, h: c.height, svc: s ? stripSlash(s["@id"] || s.id) : "", img: res?.["@id"] || "" });
-      });
-    } else {
-      (m.items || []).filter(c => c.type === "Canvas").forEach((c, i) => {
-        let body = c.items?.[0]?.items?.[0]?.body;
-        if (Array.isArray(body)) body = body[0];
-        if (body?.type === "Choice") body = body.items?.[0];
-        let s = body?.service; s = Array.isArray(s) ? s[0] : s;
-        out.push({ label: label(c.label) || `Canvas ${i + 1}`, w: c.width, h: c.height, svc: s ? stripSlash(s.id || s["@id"]) : "", img: body?.id || "" });
-      });
-    }
-    return out;
   }
 
   async function loadManifest(url, startIdx = 0, startRegion = null) {
@@ -628,7 +675,8 @@ function clipperMode() {
   }
 }
 
-if (P.get("service")) embedMode(); else clipperMode();
+const mode = routeMode(P);
+if (mode === "mirador" || mode === "osd") embedMode(); else clipperMode();
 })();
 </script>
 </body>
