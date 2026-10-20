@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IIIF Clipper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"></script>
+<style>
+/* Layout: working bench. Manifest bar on top, large viewer left, region + outputs panel right; stacks on phones. */
+:root {
+  --bg: #f3f4f1;
+  --surface: #ffffff;
+  --ink: #1d2320;
+  --muted: #5d6862;
+  --line: #d6dbd6;
+  --accent: #1f6f5c;
+  --accent-ink: #ffffff;
+  --select: #e0a21b;
+  --danger: #a3372b;
+  --stage: #2a2f2c;
+  --f-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161a18; --surface: #1f2421; --ink: #e5e9e6; --muted: #9aa59f; --line: #343b37;
+    --accent: #5cc3a6; --accent-ink: #0d1512; --select: #f2b93b; --danger: #e07a6c; --stage: #0e1110;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161a18; --surface: #1f2421; --ink: #e5e9e6; --muted: #9aa59f; --line: #343b37;
+  --accent: #5cc3a6; --accent-ink: #0d1512; --select: #f2b93b; --danger: #e07a6c; --stage: #0e1110;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 var(--f-body);
+}
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Clipper ---------- */
+#app { height: 100%; display: flex; flex-direction: column; }
+.top {
+  display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+  padding-block: 14px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.brand { font: 600 22px/1 var(--f-display); letter-spacing: -0.01em; margin: 0; white-space: nowrap; }
+.brand small { font: 500 11px var(--f-body); color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-left: 8px; }
+.load { display: flex; gap: 8px; flex: 1 1 420px; min-width: 0; }
+.load input { flex: 1; min-width: 0; }
+input[type=text], input[type=url], input[type=number], select {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 7px 9px;
+}
+input[type=number] { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 4px; padding: 7px 12px;
+  cursor: pointer; white-space: nowrap; font-weight: 500;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.on { background: var(--select); border-color: var(--select); color: #1d1606; }
+.btn.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
+
+.bench {
+  flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr); gap: 0; min-height: 0;
+}
+.stagecol { display: flex; flex-direction: column; min-width: 0; min-height: 520px; }
+.stage { position: relative; flex: 1; background: var(--stage); min-height: 420px; }
+#viewer { position: absolute !important; inset: 0; } /* OSD sets inline position:relative, which collapses the box to 0 height */
+#draw-layer { position: absolute; inset: 0; cursor: crosshair; z-index: 5; touch-action: none; }
+#draw-rubber { position: absolute; border: 2px dashed var(--select); background: color-mix(in srgb, var(--select) 18%, transparent); pointer-events: none; }
+.region-box { border: 2px solid var(--select); box-shadow: 0 0 0 9999px rgba(0,0,0,.35); pointer-events: none; }
+.stage-msg {
+  position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #c9d1cc;
+  padding: 24px; pointer-events: none;
+}
+.stage-msg p { max-width: 40ch; margin: 0; }
+.hint {
+  position: absolute; left: 12px; top: 12px; z-index: 6; background: var(--select); color: #1d1606;
+  font-weight: 500; padding: 4px 10px; border-radius: 3px; font-size: 13px;
+}
+.strip {
+  display: flex; gap: 8px; overflow-x: auto; padding: 10px 12px; background: var(--surface); border-top: 1px solid var(--line);
+}
+.thumb {
+  flex: 0 0 auto; width: 84px; border: 2px solid transparent; border-radius: 4px; padding: 3px; background: var(--bg);
+  cursor: pointer; text-align: center;
+}
+.thumb img { width: 100%; height: 72px; object-fit: contain; display: block; background: var(--stage); }
+.thumb span { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.thumb[aria-current="true"] { border-color: var(--accent); }
+
+.panel {
+  background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto;
+  padding-block: 18px 28px; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 22px; min-width: 0;
+}
+.panel h2 { font: 600 17px/1.2 var(--f-display); margin: 0 0 10px; }
+.label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.meta { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+.xywh { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.xywh label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); font-family: var(--f-mono); }
+.xywh input { width: 100%; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.check { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.out { border: 1px solid var(--line); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.out + .out { margin-top: 10px; }
+.out-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.out-head strong { font-weight: 600; }
+.out code {
+  font: 12px/1.45 var(--f-mono); background: var(--bg); padding: 7px 8px; border-radius: 3px;
+  overflow-wrap: anywhere; word-break: break-all; max-height: 7.5em; overflow-y: auto; display: block;
+}
+.out p { margin: 0; font-size: 12.5px; color: var(--muted); }
+.copied { color: var(--accent); font-size: 12px; }
+.preview { display: grid; gap: 10px; }
+.preview img, .preview iframe { width: 100%; border: 1px solid var(--line); border-radius: 3px; background: var(--stage); display: block; }
+.preview iframe { aspect-ratio: 4 / 3; max-width: 100%; height: auto; }
+.preview img { max-height: 220px; object-fit: contain; }
+.warn { background: color-mix(in srgb, var(--select) 20%, var(--surface)); border: 1px solid var(--select); border-radius: 4px; padding: 8px 10px; font-size: 12.5px; }
+.err { color: var(--danger); font-size: 13px; }
+.empty { color: var(--muted); font-size: 13px; }
+
+@media (max-width: 860px) {
+  #app { height: auto; min-height: 100%; }
+  .bench { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); }
+  .stagecol { min-height: 0; }
+  .stage { min-height: 60vh; }
+}
+
+/* ---------- Embed ---------- */
+body.embed { background: var(--stage); overflow: hidden; }
+#embed { position: fixed; inset: 0; display: flex; flex-direction: column; }
+#e-viewer { flex: 1; min-height: 0; }
+.e-cap {
+  display: flex; gap: 12px; justify-content: space-between; align-items: baseline;
+  padding: 7px 12px; background: var(--surface); color: var(--ink); font-size: 13px; border-top: 1px solid var(--line);
+}
+.e-cap span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.e-cap a { color: var(--accent); white-space: nowrap; }
+.e-err { color: #f0c2bb; padding: 20px; font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<!-- ================= CLIPPER ================= -->
+<div id="app" hidden>
+  <header class="top">
+    <h1 class="brand">IIIF Clipper <small>embed-ready crops</small></h1>
+    <form class="load" id="load-form">
+      <label for="manifest-url" class="label" style="align-self:center">Manifest</label>
+      <input id="manifest-url" type="url" placeholder="https://…/manifest.json" autocomplete="off" required>
+      <button class="btn primary" type="submit">Load</button>
+      <button class="btn" type="button" id="sample-btn">Sample</button>
+    </form>
+  </header>
+
+  <main class="bench">
+    <section class="stagecol">
+      <div class="stage" id="stage">
+        <div id="viewer"></div>
+        <div class="stage-msg" id="stage-msg"><p>Paste a IIIF Presentation manifest (v2 or v3) and press Load.</p></div>
+        <div id="draw-layer" hidden><div id="draw-rubber" hidden></div></div>
+        <div class="hint" id="draw-hint" hidden>Drag a box around the detail · Esc to cancel</div>
+      </div>
+      <nav class="strip" id="strip" aria-label="Canvases" hidden></nav>
+    </section>
+
+    <aside class="panel">
+      <section>
+        <div class="label">Item</div>
+        <h2 id="item-title" style="margin-top:4px">No manifest loaded</h2>
+        <div class="meta" id="item-meta"></div>
+      </section>
+
+      <section>
+        <h2>Region</h2>
+        <div class="row">
+          <button class="btn" id="draw-btn" type="button" disabled>Draw region</button>
+          <button class="btn" id="view-btn" type="button" disabled>Use current view</button>
+          <button class="btn" id="clear-btn" type="button" disabled>Clear</button>
+        </div>
+        <div class="xywh">
+          <label for="rx">x<input id="rx" type="number" min="0" step="1"></label>
+          <label for="ry">y<input id="ry" type="number" min="0" step="1"></label>
+          <label for="rw">w<input id="rw" type="number" min="1" step="1"></label>
+          <label for="rh">h<input id="rh" type="number" min="1" step="1"></label>
+        </div>
+        <div class="meta" id="dims" style="margin-top:6px"></div>
+      </section>
+
+      <section>
+        <h2>Options</h2>
+        <div class="field">
+          <label class="label" for="caption">Caption (embed only)</label>
+          <input id="caption" type="text" placeholder="Optional caption shown under the zoomable clip">
+        </div>
+        <div class="field">
+          <label class="label" for="size">Static image size</label>
+          <select id="size">
+            <option value="!800,800">Fit within 800 px</option>
+            <option value="!1600,1600" selected>Fit within 1600 px</option>
+            <option value="!3000,3000">Fit within 3000 px</option>
+            <option value="max">Full resolution</option>
+          </select>
+        </div>
+        <label class="check" for="opt-clip"><input id="opt-clip" type="checkbox" checked> Hide everything outside the region</label>
+        <label class="check" for="opt-nav"><input id="opt-nav" type="checkbox" checked> Show zoom buttons</label>
+        <label class="check" for="opt-link"><input id="opt-link" type="checkbox" checked> Link back to the manifest</label>
+      </section>
+
+      <section>
+        <h2>URLs</h2>
+        <div id="outputs"><p class="empty">Set a region to generate URLs.</p></div>
+      </section>
+
+      <section id="preview-sec" hidden>
+        <h2>Preview</h2>
+        <div class="preview" id="preview"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<!-- ================= EMBED ================= -->
+<div id="embed" hidden>
+  <div id="e-viewer"></div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = s => document.querySelector(s);
+const OSD_IMAGES = "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/";
+const SAMPLE = "https://iiif.io/api/cookbook/recipe/0005-image-service/manifest.json";
+const P = new URLSearchParams(location.search);
+
+/* ---------- shared helpers ---------- */
+const stripSlash = s => String(s || "").replace(/\/info\.json$/, "").replace(/\/+$/, "");
+function label(l) {
+  if (!l) return "";
+  if (typeof l === "string") return l;
+  if (Array.isArray(l)) return l.map(label).filter(Boolean).join(" ");
+  if (typeof l === "object") {
+    if ("@value" in l) return l["@value"];
+    const k = l.en ? "en" : l.none ? "none" : Object.keys(l)[0];
+    const v = l[k];
+    return Array.isArray(v) ? v.join(" ") : (v || "");
+  }
+  return "";
+}
+function plain(html) {
+  const d = document.createElement("div");
+  d.innerHTML = String(html || "");
+  return d.textContent.trim();
+}
+async function getJSON(url) {
+  const r = await fetch(url, { mode: "cors" });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText} from ${url}`);
+  return r.json();
+}
+const imageApiV3 = info => {
+  const c = [].concat(info["@context"] || []).join(" ");
+  return /image\/3/.test(c) || info.type === "ImageService3";
+};
+
+/* ================= EMBED MODE ================= */
+async function embedMode() {
+  document.body.classList.add("embed");
+  $("#embed").hidden = false;
+  const svc = stripSlash(P.get("service"));
+  const reg = (P.get("xywh") || "").split(",").map(Number);
+  const hasReg = reg.length === 4 && reg.every(n => Number.isFinite(n)) && reg[2] > 0 && reg[3] > 0;
+  const clip = P.get("clip") !== "0";
+  const nav = P.get("nav") !== "0";
+  const cap = P.get("cap") || "";
+  const link = P.get("link") || "";
+
+  if (cap || link) {
+    const bar = document.createElement("div");
+    bar.className = "e-cap";
+    const s = document.createElement("span"); s.textContent = cap; s.title = cap;
+    bar.appendChild(s);
+    if (link && /^https?:\/\//.test(link)) {
+      const a = document.createElement("a");
+      a.href = link; a.target = "_blank"; a.rel = "noopener"; a.textContent = "IIIF manifest ↗";
+      bar.appendChild(a);
+    }
+    $("#embed").appendChild(bar);
+  }
+
+  let info;
+  try { info = await getJSON(svc + "/info.json"); }
+  catch (e) {
+    $("#e-viewer").innerHTML = "";
+    const p = document.createElement("p"); p.className = "e-err";
+    p.textContent = "Couldn't load the image service. " + e.message;
+    $("#e-viewer").appendChild(p);
+    return;
+  }
+
+  const v = OpenSeadragon({
+    element: $("#e-viewer"),
+    prefixUrl: OSD_IMAGES,
+    tileSources: info,
+    showNavigationControl: nav,
+    showFullPageControl: false,
+    showRotationControl: false,
+    gestureSettingsMouse: { scrollToZoom: false, clickToZoom: false, dblClickToZoom: true },
+    visibilityRatio: 0.5,
+    animationTime: 0.7,
+    crossOriginPolicy: "Anonymous"
+  });
+  v.addHandler("open", () => {
+    if (!hasReg) return;
+    const ti = v.world.getItemAt(0);
+    const r = new OpenSeadragon.Rect(reg[0], reg[1], reg[2], reg[3]);
+    if (clip) ti.setClip(r);
+    const vr = ti.imageToViewportRectangle(r);
+    v.viewport.getHomeBounds = () => vr.clone();
+    v.viewport.goHome = function (immediately) { this.fitBounds(vr, immediately); return this; };
+    v.viewport.fitBounds(vr, true);
+  });
+}
+
+/* ================= CLIPPER MODE ================= */
+function clipperMode() {
+  $("#app").hidden = false;
+  const S = { manifestUrl: "", manifest: null, canvases: [], idx: 0, info: null, svc: "", v3: true, region: null, overlay: false };
+
+  const viewer = OpenSeadragon({
+    element: $("#viewer"),
+    prefixUrl: OSD_IMAGES,
+    showNavigator: true,
+    navigatorPosition: "BOTTOM_RIGHT",
+    showRotationControl: false,
+    crossOriginPolicy: "Anonymous",
+    gestureSettingsMouse: { clickToZoom: false }
+  });
+  const box = document.createElement("div");
+  box.className = "region-box";
+
+  viewer.addHandler("open", () => {
+    S.overlay = false;
+    $("#stage-msg").hidden = true;
+    ["#draw-btn", "#view-btn", "#clear-btn"].forEach(s => $(s).disabled = false);
+    if (S.pending) { const r = S.pending; S.pending = null; setRegion(r, true); }
+  });
+  viewer.addHandler("open-failed", e => showStageMsg("Couldn't open this image: " + (e.message || "unknown error")));
+
+  function showStageMsg(t, isErr = true) {
+    const m = $("#stage-msg"); m.hidden = false;
+    m.innerHTML = ""; const p = document.createElement("p");
+    p.textContent = t; if (isErr) p.style.color = "#f0c2bb";
+    m.appendChild(p);
+  }
+
+  /* --- manifest parsing (v2 + v3) --- */
+  function parseCanvases(m) {
+    const out = [];
+    if (m.sequences) {
+      (m.sequences[0]?.canvases || []).forEach((c, i) => {
+        const res = c.images?.[0]?.resource;
+        let s = res?.service; s = Array.isArray(s) ? s[0] : s;
+        out.push({ label: label(c.label) || `Canvas ${i + 1}`, w: c.width, h: c.height, svc: s ? stripSlash(s["@id"] || s.id) : "", img: res?.["@id"] || "" });
+      });
+    } else {
+      (m.items || []).filter(c => c.type === "Canvas").forEach((c, i) => {
+        let body = c.items?.[0]?.items?.[0]?.body;
+        if (Array.isArray(body)) body = body[0];
+        if (body?.type === "Choice") body = body.items?.[0];
+        let s = body?.service; s = Array.isArray(s) ? s[0] : s;
+        out.push({ label: label(c.label) || `Canvas ${i + 1}`, w: c.width, h: c.height, svc: s ? stripSlash(s.id || s["@id"]) : "", img: body?.id || "" });
+      });
+    }
+    return out;
+  }
+
+  async function loadManifest(url, startIdx = 0, startRegion = null) {
+    url = url.trim(); if (!url) return;
+    $("#manifest-url").value = url;
+    showStageMsg("Loading manifest…", false);
+    $("#strip").hidden = true;
+    try { S.manifest = await getJSON(url); }
+    catch (e) {
+      showStageMsg("Couldn't load that manifest. Check the URL, and that the server allows cross-origin requests (CORS). " + e.message);
+      return;
+    }
+    S.manifestUrl = url;
+    try { localStorage.setItem("iiifclip:last", url); } catch (_) {}
+    S.canvases = parseCanvases(S.manifest);
+    if (!S.canvases.length) { showStageMsg("This manifest has no canvases I can read."); return; }
+
+    const title = label(S.manifest.label) || "Untitled item";
+    $("#item-title").textContent = title;
+    const attr = S.manifest.requiredStatement ? plain(label(S.manifest.requiredStatement.value)) : plain(label(S.manifest.attribution));
+    $("#item-meta").textContent = [`${S.canvases.length} canvas${S.canvases.length === 1 ? "" : "es"}`, attr].filter(Boolean).join(" · ");
+    // Replace the caption unless the user typed their own
+    const cap = $("#caption");
+    if (!cap.value || cap.value === S.autoCap) { cap.value = title; S.autoCap = title; }
+
+    buildStrip();
+    await openCanvas(Math.min(Math.max(0, startIdx), S.canvases.length - 1), startRegion);
+  }
+
+  function buildStrip() {
+    const strip = $("#strip"); strip.innerHTML = "";
+    S.canvases.forEach((c, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "thumb"; b.title = c.label;
+      const img = document.createElement("img");
+      img.loading = "lazy"; img.alt = "";
+      if (c.svc) img.src = `${c.svc}/full/!160,160/0/default.jpg`;
+      const s = document.createElement("span"); s.textContent = c.label;
+      b.append(img, s);
+      b.addEventListener("click", () => openCanvas(i));
+      strip.appendChild(b);
+    });
+    strip.hidden = S.canvases.length < 2;
+  }
+
+  async function openCanvas(i, startRegion = null) {
+    S.idx = i; S.region = null; S.info = null;
+    ["#rx", "#ry", "#rw", "#rh"].forEach(s => $(s).value = "");
+    [...$("#strip").children].forEach((b, j) => b.setAttribute("aria-current", j === i ? "true" : "false"));
+    const c = S.canvases[i];
+    if (!c.svc) {
+      showStageMsg("This canvas has no IIIF Image Service, so it can't be cropped by URL.");
+      viewer.close(); render(); return;
+    }
+    showStageMsg("Loading image…", false);
+    try { S.info = await getJSON(c.svc + "/info.json"); }
+    catch (e) { showStageMsg("Couldn't load the image service info.json. " + e.message); render(); return; }
+    S.svc = c.svc;
+    S.v3 = imageApiV3(S.info);
+    $("#dims").textContent = `Full image ${S.info.width} × ${S.info.height} px · Image API ${S.v3 ? "3" : "2"}`;
+    S.pending = startRegion;
+    viewer.open(S.info);
+    render();
+  }
+
+  /* --- region --- */
+  function setRegion(r, fly = false) {
+    if (!S.info) return;
+    const W = S.info.width, H = S.info.height;
+    let x = Math.round(Math.max(0, Math.min(r.x, W - 1)));
+    let y = Math.round(Math.max(0, Math.min(r.y, H - 1)));
+    let w = Math.round(Math.max(1, Math.min(r.w, W - x)));
+    let h = Math.round(Math.max(1, Math.min(r.h, H - y)));
+    S.region = { x, y, w, h };
+    $("#rx").value = x; $("#ry").value = y; $("#rw").value = w; $("#rh").value = h;
+    const ti = viewer.world.getItemAt(0);
+    if (ti) {
+      const vr = ti.imageToViewportRectangle(new OpenSeadragon.Rect(x, y, w, h));
+      if (S.overlay) viewer.updateOverlay(box, vr);
+      else { viewer.addOverlay({ element: box, location: vr }); S.overlay = true; }
+      if (fly) viewer.viewport.fitBounds(vr);
+    }
+    render();
+  }
+  function clearRegion() {
+    S.region = null;
+    if (S.overlay) { viewer.removeOverlay(box); S.overlay = false; }
+    ["#rx", "#ry", "#rw", "#rh"].forEach(s => $(s).value = "");
+    render();
+  }
+  ["#rx", "#ry", "#rw", "#rh"].forEach(s => $(s).addEventListener("change", () => {
+    const vals = ["#rx", "#ry", "#rw", "#rh"].map(q => Number($(q).value));
+    if (vals.every(Number.isFinite) && vals[2] > 0 && vals[3] > 0) setRegion({ x: vals[0], y: vals[1], w: vals[2], h: vals[3] }, true);
+  }));
+
+  $("#view-btn").addEventListener("click", () => {
+    const ti = viewer.world.getItemAt(0); if (!ti) return;
+    const r = ti.viewportToImageRectangle(viewer.viewport.getBounds(true));
+    setRegion({ x: r.x, y: r.y, w: r.width, h: r.height });
+  });
+  $("#clear-btn").addEventListener("click", clearRegion);
+
+  /* --- draw mode --- */
+  const layer = $("#draw-layer"), rubber = $("#draw-rubber");
+  let drawing = false, start = null;
+  function setDraw(on) {
+    drawing = on; layer.hidden = !on; $("#draw-hint").hidden = !on;
+    $("#draw-btn").classList.toggle("on", on);
+    $("#draw-btn").textContent = on ? "Cancel drawing" : "Draw region";
+    rubber.hidden = true; start = null;
+  }
+  $("#draw-btn").addEventListener("click", () => setDraw(!drawing));
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && drawing) setDraw(false); });
+  const local = e => { const b = layer.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
+  layer.addEventListener("pointerdown", e => {
+    layer.setPointerCapture(e.pointerId);
+    start = local(e);
+    Object.assign(rubber.style, { left: start.x + "px", top: start.y + "px", width: "0px", height: "0px" });
+    rubber.hidden = false;
+  });
+  layer.addEventListener("pointermove", e => {
+    if (!start) return;
+    const p = local(e);
+    Object.assign(rubber.style, {
+      left: Math.min(p.x, start.x) + "px", top: Math.min(p.y, start.y) + "px",
+      width: Math.abs(p.x - start.x) + "px", height: Math.abs(p.y - start.y) + "px"
+    });
+  });
+  layer.addEventListener("pointerup", e => {
+    if (!start) return;
+    const p = local(e), s0 = start;
+    start = null;
+    if (Math.abs(p.x - s0.x) < 6 || Math.abs(p.y - s0.y) < 6) { rubber.hidden = true; return; }
+    const ti = viewer.world.getItemAt(0);
+    const a = ti.viewerElementToImageCoordinates(new OpenSeadragon.Point(Math.min(p.x, s0.x), Math.min(p.y, s0.y)));
+    const b = ti.viewerElementToImageCoordinates(new OpenSeadragon.Point(Math.max(p.x, s0.x), Math.max(p.y, s0.y)));
+    setDraw(false);
+    setRegion({ x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y });
+  });
+
+  /* --- outputs --- */
+  ["#caption", "#size", "#opt-clip", "#opt-nav", "#opt-link"].forEach(s => $(s).addEventListener("input", render));
+
+  function urls() {
+    const { x, y, w, h } = S.region;
+    let size = $("#size").value;
+    if (size === "max" && !S.v3) size = "full";
+    const image = `${S.svc}/${x},${y},${w},${h}/${size}/0/default.jpg`;
+    const q = new URLSearchParams();
+    q.set("service", S.svc);
+    q.set("xywh", `${x},${y},${w},${h}`);
+    if (!$("#opt-clip").checked) q.set("clip", "0");
+    if (!$("#opt-nav").checked) q.set("nav", "0");
+    const cap = $("#caption").value.trim(); if (cap) q.set("cap", cap);
+    if ($("#opt-link").checked && S.manifestUrl) q.set("link", S.manifestUrl);
+    q.set("manifest", S.manifestUrl);
+    q.set("canvas", String(S.idx));
+    const base = location.origin + location.pathname;
+    const embed = `${base}?${q.toString()}`;
+    return { image, embed };
+  }
+
+  let previewTimer;
+  function render() {
+    const outs = $("#outputs");
+    if (!S.region || !S.svc) {
+      outs.innerHTML = `<p class="empty">Set a region to generate URLs.</p>`;
+      $("#preview-sec").hidden = true;
+      return;
+    }
+    const u = urls();
+    outs.innerHTML = "";
+    if (location.protocol === "file:") {
+      const w = document.createElement("div"); w.className = "warn";
+      w.textContent = "You're running this file locally, so the zoomable embed URL points at your computer. Host the file (GitHub Pages works) before using that URL in PubPub.";
+      outs.appendChild(w);
+    }
+    outs.appendChild(outBlock("Zoomable embed", "Paste into PubPub's iframe embed. Opens zoomed to the region; readers can zoom further.", u.embed, true));
+    outs.appendChild(outBlock("Static image (IIIF Image API)", "A plain cropped image served by the IIIF server. Works as an image or iframe URL and needs no hosting.", u.image, false));
+
+    $("#preview-sec").hidden = false;
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
+      const pv = $("#preview"); pv.innerHTML = "";
+      const img = document.createElement("img"); img.alt = "Static crop preview"; img.src = u.image.replace(/\/(!?\d+,\d+|max|full)\/0\//, "/!600,600/0/");
+      pv.appendChild(img);
+      if (location.protocol !== "file:") {
+        const f = document.createElement("iframe"); f.src = u.embed; f.title = "Embed preview"; f.loading = "lazy";
+        pv.appendChild(f);
+      }
+    }, 450);
+  }
+
+  function outBlock(title, desc, url, openable) {
+    const d = document.createElement("div"); d.className = "out";
+    const head = document.createElement("div"); head.className = "out-head";
+    const t = document.createElement("strong"); t.textContent = title;
+    const actions = document.createElement("div"); actions.className = "row";
+    const note = document.createElement("span"); note.className = "copied"; note.setAttribute("aria-live", "polite");
+    const copy = document.createElement("button"); copy.type = "button"; copy.className = "btn"; copy.textContent = "Copy";
+    const code = document.createElement("code"); code.textContent = url; code.tabIndex = 0;
+    copy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(url); note.textContent = "Copied"; }
+      catch (_) {
+        const r = document.createRange(); r.selectNodeContents(code);
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+        note.textContent = "Selected, press Ctrl/⌘+C";
+      }
+      setTimeout(() => note.textContent = "", 2200);
+    });
+    actions.append(note, copy);
+    if (openable) {
+      const a = document.createElement("a"); a.className = "btn"; a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Open";
+      a.style.textDecoration = "none"; actions.appendChild(a);
+    }
+    head.append(t, actions);
+    const p = document.createElement("p"); p.textContent = desc;
+    d.append(head, code, p);
+    return d;
+  }
+
+  /* --- load wiring --- */
+  $("#load-form").addEventListener("submit", e => { e.preventDefault(); loadManifest($("#manifest-url").value); });
+  $("#sample-btn").addEventListener("click", () => loadManifest(SAMPLE));
+
+  // Reopen a saved clip: ?manifest=…&canvas=…&xywh=…
+  const m = P.get("manifest");
+  if (m) {
+    const r = (P.get("xywh") || "").split(",").map(Number);
+    const reg = r.length === 4 && r.every(Number.isFinite) ? { x: r[0], y: r[1], w: r[2], h: r[3] } : null;
+    if (P.get("cap")) $("#caption").value = P.get("cap");
+    $("#opt-clip").checked = P.get("clip") !== "0";
+    $("#opt-nav").checked = P.get("nav") !== "0";
+    $("#opt-link").checked = P.has("link");
+    loadManifest(m, Number(P.get("canvas")) || 0, reg);
+  } else {
+    let last = ""; try { last = localStorage.getItem("iiifclip:last") || ""; } catch (_) {}
+    if (last) $("#manifest-url").value = last;
+  }
+}
+
+if (P.get("service")) embedMode(); else clipperMode();
+})();
+</script>
+</body>
+</html>
