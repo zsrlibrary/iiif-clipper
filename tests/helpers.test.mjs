@@ -9,7 +9,7 @@ const end = html.indexOf("/* @helpers-end */");
 assert.ok(start >= 0 && end > start, "index.html must contain the @helpers-start/@helpers-end markers");
 const H = new Function(
   html.slice(start, end) +
-  "; return { parseCanvases, canvasAt, canvasScale, routeMode, parseRatio, RATIOS, fitRatioRect };"
+  "; return { parseCanvases, canvasAt, canvasScale, routeMode, parseRatio, RATIOS, fitRatioRect, withRetry, createQueue };"
 )();
 
 test("parseCanvases reads a v2 manifest with id and image width", () => {
@@ -124,4 +124,59 @@ test("fitRatioRect keeps every preset ratio within a pixel and inside the image"
       for (const k of ["x", "y", "w", "h"]) assert.ok(Number.isInteger(r[k]), `${s} ${k} integer`);
     }
   }
+});
+
+// Rate-limited servers (e.g. tile.loc.gov answering 429) need retries and gentle request pacing.
+const noSleep = () => Promise.resolve();
+
+test("withRetry returns the first successful result without sleeping", async () => {
+  const waits = [];
+  const r = await H.withRetry(async () => "ok", [1000, 3000], ms => { waits.push(ms); return Promise.resolve(); });
+  assert.equal(r, "ok");
+  assert.deepEqual(waits, []);
+});
+
+test("withRetry retries after each delay until a call succeeds", async () => {
+  let calls = 0; const waits = [];
+  const r = await H.withRetry(async () => { if (++calls < 3) throw new Error("429"); return "info"; },
+    [1000, 3000], ms => { waits.push(ms); return Promise.resolve(); });
+  assert.equal(r, "info");
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [1000, 3000]);
+});
+
+test("withRetry gives up after the last delay and throws the last error", async () => {
+  let calls = 0;
+  await assert.rejects(H.withRetry(async () => { throw new Error("fail " + ++calls); }, [10, 20], noSleep), /fail 3/);
+  assert.equal(calls, 3);
+});
+
+test("withRetry stops early when told the result is no longer wanted", async () => {
+  let calls = 0, wanted = true;
+  await assert.rejects(H.withRetry(async () => { calls++; wanted = false; throw new Error("429"); }, [10, 20], noSleep, () => wanted), /429/);
+  assert.equal(calls, 1);
+});
+
+test("createQueue never runs more than the limit at once and finishes every task", async () => {
+  const run = H.createQueue(2, 0, noSleep);
+  let running = 0, peak = 0;
+  const task = () => run(async () => { running++; peak = Math.max(peak, running); await new Promise(r => setTimeout(r, 5)); running--; return "done"; });
+  const results = await Promise.all(Array.from({ length: 7 }, task));
+  assert.equal(peak, 2);
+  assert.deepEqual(results, Array(7).fill("done"));
+});
+
+test("createQueue keeps going after a task fails", async () => {
+  const run = H.createQueue(1, 0, noSleep);
+  const a = run(async () => { throw new Error("bad thumb"); });
+  const b = run(async () => "next");
+  await assert.rejects(a, /bad thumb/);
+  assert.equal(await b, "next");
+});
+
+test("createQueue waits the gap before starting each queued task", async () => {
+  const waits = [];
+  const run = H.createQueue(1, 150, ms => { waits.push(ms); return Promise.resolve(); });
+  await Promise.all([run(async () => 1), run(async () => 2), run(async () => 3)]);
+  assert.deepEqual(waits, [150, 150, 150]);
 });

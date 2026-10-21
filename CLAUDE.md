@@ -45,6 +45,7 @@ The tool also outputs a static IIIF Image API crop URL: `{service}/{x,y,w,h}/{si
 - Mirador embed scroll-zooms (like any Mirador); the legacy OSD embed keeps scroll-to-zoom off.
 - Legacy OSD embed clips with `TiledImage.setClip`; Home returns to the region.
 - Ratio frame sits above OSD, so it forwards wheel events as `viewport.zoomBy`. `.stage` has `overflow: hidden` so the frame's dimming shadow stays inside.
+- Rate-limited image servers: `tile.loc.gov` (Library of Congress) answers bursts with HTTP 429 *without* CORS headers, which browsers report as "Failed to fetch". So the clipper retries info.json (`withRetry`, 1.5 s then 4 s), drops stale responses when the user clicks another page (`openSeq`), clears the old image and shows a plain message on failure, and loads thumbnails only near view, 2 at a time, 150 ms apart (`createQueue` + IntersectionObserver). Mirador embeds of LoC items can still hit the limit for readers; that's on LoC's side.
 - Last-used manifest is remembered in `localStorage` (wrapped in try/catch).
 - `[hidden] { display: none !important }` is required: several elements set `display: flex/grid`, which otherwise overrides the `hidden` attribute.
 - OpenSeadragon writes inline `position: relative` on its element, so `#viewer` uses `position: absolute !important` to keep filling the stage.

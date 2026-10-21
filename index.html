@@ -336,6 +336,34 @@ function fitRatioRect(r, ratio, W, H) {
   const y = Math.min(Math.max(0, Math.round(cy - h / 2)), H - h);
   return { x, y, w, h };
 }
+
+// Call fn; if it rejects, wait delays[i] and try again, up to delays.length retries.
+// wanted() lets the caller abandon retries whose result would be ignored (e.g. the user picked another page).
+async function withRetry(fn, delays, sleep, wanted = () => true) {
+  for (let i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i >= delays.length || !wanted()) throw e;
+      await sleep(delays[i]);
+    }
+  }
+}
+
+// Run at most `limit` tasks at a time, waiting gapMs before each start, so a page of thumbnails
+// doesn't arrive at the image server as one burst. Returns run(task) -> task's promise.
+function createQueue(limit, gapMs, sleep) {
+  let active = 0;
+  const waiting = [];
+  const next = () => {
+    if (active >= limit || !waiting.length) return;
+    active++;
+    const { task, resolve, reject } = waiting.shift();
+    (async () => { if (gapMs) await sleep(gapMs); return task(); })()
+      .then(resolve, reject)
+      .finally(() => { active--; next(); });
+  };
+  return task => new Promise((resolve, reject) => { waiting.push({ task, resolve, reject }); next(); });
+}
 /* @helpers-end */
 
 function plain(html) {
@@ -343,6 +371,7 @@ function plain(html) {
   d.innerHTML = String(html || "");
   return d.textContent.trim();
 }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function getJSON(url) {
   const r = await fetch(url, { mode: "cors" });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} from ${url}`);
@@ -532,14 +561,29 @@ function clipperMode() {
     await openCanvas(Math.min(Math.max(0, startIdx), S.canvases.length - 1), startRegion);
   }
 
+  // Thumbnails load only when scrolled near view, two at a time, so big manifests don't trip server rate limits
+  const thumbQueue = createQueue(2, 150, sleep);
+  const loadThumb = img => new Promise((resolve, reject) => {
+    if (!img.isConnected) return resolve();          // strip was rebuilt for another manifest
+    img.onload = resolve; img.onerror = () => reject(new Error("thumbnail failed"));
+    img.src = img.dataset.src;
+  });
+  let thumbObserver = null;
+
   function buildStrip() {
     const strip = $("#strip"); strip.innerHTML = "";
+    thumbObserver?.disconnect();
+    thumbObserver = new IntersectionObserver(entries => entries.forEach(en => {
+      if (!en.isIntersecting) return;
+      thumbObserver.unobserve(en.target);
+      thumbQueue(() => withRetry(() => loadThumb(en.target), [3000], sleep, () => en.target.isConnected)).catch(() => {});
+    }), { root: strip, rootMargin: "0px 300px" });
     S.canvases.forEach((c, i) => {
       const b = document.createElement("button");
       b.type = "button"; b.className = "thumb"; b.title = c.label;
       const img = document.createElement("img");
-      img.loading = "lazy"; img.alt = "";
-      if (c.svc) img.src = `${c.svc}/full/!160,160/0/default.jpg`;
+      img.alt = "";
+      if (c.svc) { img.dataset.src = `${c.svc}/full/!160,160/0/default.jpg`; thumbObserver.observe(img); }
       const s = document.createElement("span"); s.textContent = c.label;
       b.append(img, s);
       b.addEventListener("click", () => openCanvas(i));
@@ -548,18 +592,35 @@ function clipperMode() {
     strip.hidden = S.canvases.length < 2;
   }
 
+  let openSeq = 0;   // newest openCanvas call; older ones drop their results
   async function openCanvas(i, startRegion = null) {
+    const seq = ++openSeq;
     S.idx = i; S.region = null; S.info = null;
     ["#rx", "#ry", "#rw", "#rh"].forEach(s => $(s).value = "");
     [...$("#strip").children].forEach((b, j) => b.setAttribute("aria-current", j === i ? "true" : "false"));
     const c = S.canvases[i];
     if (!c.svc) {
       showStageMsg("This canvas has no IIIF Image Service, so it can't be cropped by URL.");
-      viewer.close(); render(); return;
+      viewer.close(); frame.hidden = true; updateRegionButtons(); render(); return;
     }
     showStageMsg("Loading image…", false);
-    try { S.info = await getJSON(c.svc + "/info.json"); }
-    catch (e) { showStageMsg("Couldn't load the image service info.json. " + e.message); render(); return; }
+    let info, tries = 0;
+    try {
+      // Busy servers (e.g. tile.loc.gov) answer 429 without CORS headers, which surfaces as "Failed to fetch"
+      info = await withRetry(() => {
+        if (tries++) showStageMsg("The image server is busy — retrying…", false);
+        return getJSON(c.svc + "/info.json");
+      }, [1500, 4000], sleep, () => seq === openSeq);
+    } catch (e) {
+      if (seq !== openSeq) return;
+      viewer.close();
+      frame.hidden = true;
+      $("#dims").textContent = "";
+      showStageMsg("The image server didn't respond, or refused the request. Large collections such as the Library of Congress limit how fast images can be loaded — wait a minute, then click the page again.");
+      updateRegionButtons(); render(); return;
+    }
+    if (seq !== openSeq) return;
+    S.info = info;
     S.svc = c.svc;
     S.v3 = imageApiV3(S.info);
     $("#dims").textContent = `Full image ${S.info.width} × ${S.info.height} px · Image API ${S.v3 ? "3" : "2"}`;
