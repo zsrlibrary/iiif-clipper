@@ -853,7 +853,6 @@ function clipperMode() {
     return { image, embed };
   }
 
-  let previewTimer;
   function render() {
     const outs = $("#outputs");
     if (!S.region || !S.svc) {
@@ -871,17 +870,29 @@ function clipperMode() {
     outs.appendChild(outBlock("Zoomable embed", "Paste into PubPub's iframe embed. Opens zoomed to the region; readers can zoom further.", u.embed, true));
     outs.appendChild(outBlock("Static image (IIIF Image API)", "A plain cropped image served by the IIIF server. Works as an image or iframe URL and needs no hosting.", u.image, false));
 
+    // Preview only on request: each preview is a full Mirador load plus a crop image, and rebuilding it on
+    // every region change burned through image-server rate limits (LoC: 150 requests/min, then a 1-hour block)
     $("#preview-sec").hidden = false;
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(() => {
-      const pv = $("#preview"); pv.innerHTML = "";
-      const img = document.createElement("img"); img.alt = "Static crop preview"; img.src = u.image.replace(/\/(!?\d+,\d+|max|full)\/0\//, "/!600,600/0/");
-      pv.appendChild(img);
-      if (location.protocol !== "file:") {
-        const f = document.createElement("iframe"); f.src = u.embed; f.title = "Embed preview"; f.loading = "lazy";
-        pv.appendChild(f);
-      }
-    }, 450);
+    const pv = $("#preview");
+    if (pv.dataset.for === u.embed) return;   // already previewing this exact clip
+    pv.dataset.for = "";
+    pv.innerHTML = "";
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "btn"; b.textContent = "Show preview";
+    const note = document.createElement("p"); note.className = "meta";
+    note.textContent = "Loads the embed and the static crop as readers will see them.";
+    b.addEventListener("click", () => showPreview(u));
+    pv.append(b, note);
+  }
+
+  function showPreview(u) {
+    const pv = $("#preview"); pv.innerHTML = ""; pv.dataset.for = u.embed;
+    const img = document.createElement("img"); img.alt = "Static crop preview"; img.src = u.image.replace(/\/(!?\d+,\d+|max|full)\/0\//, "/!600,600/0/");
+    pv.appendChild(img);
+    if (location.protocol !== "file:") {
+      const f = document.createElement("iframe"); f.src = u.embed; f.title = "Embed preview";
+      pv.appendChild(f);
+    }
   }
 
   function outBlock(title, desc, url, openable) {
